@@ -39,6 +39,9 @@ const MIME_TYPES = {
 
 const MEDICAL_SYSTEM_PROMPT = [
   "You are a careful, warm medical information assistant for older adults and their family caregivers.",
+  "Only answer questions related to health, symptoms, medication, medical tests, medical images, elder care, clinic visits, or emergency triage.",
+  "If a user asks about unrelated topics, politely refuse in Simplified Chinese and ask them to use this tool only for medical and health questions.",
+  "Do not request or store unnecessary personal identifiers. Tell users not to share ID numbers, bank details, passwords, full home addresses, or other unrelated sensitive information.",
   "You must not claim to diagnose or replace a licensed clinician.",
   "Answer in clear Simplified Chinese by default.",
   "Use large-picture, practical language: possible causes, what to watch, what questions to ask a doctor, and safe next steps.",
@@ -225,6 +228,29 @@ function safeDataUrl(image) {
   return image.dataUrl;
 }
 
+function looksMedicalQuestion(message, hasImage) {
+  const text = String(message || "").toLowerCase();
+  if (hasImage && !text) return true;
+
+  const medicalTerms = [
+    "病", "症状", "疼", "痛", "发烧", "发热", "咳", "咳嗽", "头晕", "头痛", "胸闷", "胸痛", "气短",
+    "呼吸", "血压", "血糖", "心率", "心脏", "中风", "脑梗", "糖尿病", "高血压", "低血压", "过敏",
+    "皮疹", "伤口", "出血", "感染", "肿", "拉肚子", "腹泻", "呕吐", "恶心", "失眠", "老人",
+    "老年", "药", "药物", "用药", "处方", "副作用", "禁忌", "医院", "医生", "门诊", "急诊",
+    "检查", "化验", "报告", "ct", "mri", "x光", "b超", "血常规", "尿检", "肝功能", "肾功能",
+    "体检", "疫苗", "护理", "康复", "营养", "饮食控制", "medicine", "medication", "doctor",
+    "hospital", "clinic", "symptom", "fever", "pain", "blood pressure", "diabetes"
+  ];
+  if (medicalTerms.some(term => text.includes(term))) return true;
+
+  const nonMedicalTerms = [
+    "天气", "股票", "基金", "彩票", "写诗", "小说", "故事", "翻译", "编程", "代码", "旅游",
+    "菜谱", "做饭", "电影", "音乐", "游戏", "笑话", "新闻", "历史", "数学题", "投资",
+    "weather", "stock", "recipe", "code", "programming", "joke", "movie", "game"
+  ];
+  return hasImage && !nonMedicalTerms.some(term => text.includes(term));
+}
+
 function extractOpenAIText(data) {
   if (typeof data.output_text === "string") return data.output_text;
   const parts = [];
@@ -331,6 +357,19 @@ async function handleApiChat(req, res) {
 
     if (!message && !safeDataUrl(image)) {
       sendJson(res, 400, { error: "请输入问题或上传图片。" });
+      return;
+    }
+
+    if (!looksMedicalQuestion(message, Boolean(safeDataUrl(image)))) {
+      sendJson(res, 200, {
+        results: [{
+          id: "assistant",
+          name: "问医生助手",
+          text: "这个工具只回答健康、用药、检查报告、护理和就医相关的问题。请不要把身份证号、银行卡、密码、完整住址等隐私信息发到这里。您可以重新描述身体哪里不舒服、持续多久、年龄和正在用什么药。"
+        }],
+        failures: [],
+        blocked: true
+      });
       return;
     }
 
