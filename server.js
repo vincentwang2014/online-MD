@@ -495,6 +495,11 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.method === "GET" && req.url.startsWith("/health")) {
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (req.method === "POST" && req.url.startsWith("/api/login")) {
     handleLogin(req, res);
     return;
@@ -524,6 +529,6 @@ const server = http.createServer((req, res) => {
   res.end("Method not allowed");
 });
 
-server.listen(PORT, () => {
-  console.log(`Elder care AI chat is running at http://localhost:${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Elder care AI chat is running on port ${PORT}`);
 });
