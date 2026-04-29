@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f7fbf9">
+    <title>问医生助手</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">家用寻医问药</p>
+          <h1>问医生助手</h1>
+        </div>
+        <div class="top-actions">
+          <button id="settingsButton" class="small-action" type="button" hidden>管理</button>
+          <button id="loginButton" class="small-action primary" type="button">登录</button>
+        </div>
+      </header>
+
+      <section id="accountPanel" class="account-panel" aria-label="本地账号">
+        <div>
+          <strong id="accountName">访客模式</strong>
+          <span id="accountHint">登录后，对话历史和医生提示词会保存在本机浏览器。</span>
+        </div>
+        <button id="newChatButton" type="button">新对话</button>
+      </section>
+
+      <section class="notice" aria-label="医疗提示">
+        <strong>紧急情况请立即拨打急救电话。</strong>
+        本工具只帮助整理信息和提供就医前建议，不能替代医生面诊或处方。
+      </section>
+
+      <section id="settingsPanel" class="settings-panel" hidden aria-label="管理员设置">
+        <div class="panel-header">
+          <div>
+            <h2>管理员设置</h2>
+            <p>只有管理员可以修改医生提示词和添加用户；医疗安全规则会由后端自动保留。</p>
+          </div>
+          <button id="closeSettingsButton" type="button" aria-label="关闭设置">×</button>
+        </div>
+
+        <label class="prompt-field">
+          <span>OpenAI医生 system prompt</span>
+          <textarea id="openaiPrompt" rows="5"></textarea>
+        </label>
+
+        <label class="prompt-field">
+          <span>Gemini医生 system prompt</span>
+          <textarea id="geminiPrompt" rows="5"></textarea>
+        </label>
+
+        <div class="settings-actions">
+          <button id="resetPromptsButton" type="button">恢复默认</button>
+          <button id="savePromptsButton" class="primary-action" type="button">保存提示词</button>
+        </div>
+
+        <div class="admin-users">
+          <div class="subsection-header">
+            <h3>添加用户</h3>
+            <span>初期由管理员手动创建账号。</span>
+          </div>
+          <form id="addUserForm" class="add-user-form">
+            <label>
+              <span>用户名</span>
+              <input id="newUsernameInput" type="text" maxlength="24" autocomplete="off" placeholder="例如：妈妈">
+            </label>
+            <label>
+              <span>临时密码</span>
+              <input id="newPasswordInput" type="text" maxlength="32" autocomplete="off" placeholder="至少 4 位">
+            </label>
+            <label>
+              <span>角色</span>
+              <select id="newRoleInput">
+                <option value="user">普通用户</option>
+                <option value="admin">管理员</option>
+              </select>
+            </label>
+            <button class="primary-action" type="submit">添加</button>
+          </form>
+          <div id="userList" class="user-list"></div>
+        </div>
+      </section>
+
+      <section class="provider-panel" aria-label="选择医生">
+        <button class="provider-option active" type="button" data-provider="both">
+          <span>双医生</span>
+          <small>同时询问</small>
+        </button>
+        <button class="provider-option" type="button" data-provider="openai">
+          <span>OpenAI医生</span>
+          <small>ChatGPT</small>
+        </button>
+        <button class="provider-option" type="button" data-provider="gemini">
+          <span>Gemini医生</span>
+          <small>Google</small>
+        </button>
+      </section>
+
+      <section id="historyPanel" class="history-panel" hidden aria-label="历史对话">
+        <div class="history-header">
+          <strong>历史对话</strong>
+          <button id="clearHistoryButton" type="button">清空</button>
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </section>
+
+      <section id="chatLog" class="chat-log" aria-live="polite" aria-label="聊天记录"></section>
+
+      <form id="chatForm" class="composer" autocomplete="off">
+        <div id="imagePreview" class="image-preview" hidden>
+          <img alt="已上传的图片预览">
+          <div>
+            <strong id="imageName"></strong>
+            <span id="imageSize"></span>
+          </div>
+          <button id="removeImage" type="button" aria-label="移除图片">×</button>
+        </div>
+
+        <div class="input-row">
+          <label class="icon-button attach-button" for="imageInput" title="上传图片">
+            <span aria-hidden="true">＋</span>
+            <span class="sr-only">上传图片</span>
+          </label>
+          <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" capture="environment">
+          <textarea id="messageInput" rows="1" placeholder="请描述症状、年龄、持续时间..." aria-label="输入问题"></textarea>
+          <button id="sendButton" class="send-button" type="submit" aria-label="发送">
+            <span aria-hidden="true">➤</span>
+          </button>
+        </div>
+      </form>
+    </main>
+
+    <dialog id="loginDialog" class="login-dialog">
+      <form method="dialog" id="loginForm">
+        <h2>本地登录</h2>
+        <p>这是本机浏览器里的轻量登录，用来区分不同人的本地历史，不会创建线上账号。</p>
+        <label>
+          <span>用户名</span>
+          <input id="usernameInput" type="text" maxlength="24" autocomplete="username" placeholder="管理员用 admin">
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="passwordInput" type="password" maxlength="64" autocomplete="current-password" placeholder="请输入密码">
+        </label>
+        <div class="dialog-actions">
+          <button id="logoutButton" type="button">退出登录</button>
+          <button value="cancel" type="submit">取消</button>
+          <button class="primary-action" value="login" type="submit">登录</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

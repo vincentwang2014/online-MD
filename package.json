@@ -1,0 +1,13 @@
+{
+  "name": "elder-care-ai-chat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Responsive medical guidance chatbot UI with OpenAI Doctor and Gemini Doctor providers.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
