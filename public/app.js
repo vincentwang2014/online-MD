@@ -451,28 +451,24 @@ function renderUsers(users) {
 function addUserMessage(text, imageUrl) {
   const message = { type: "user", name: "我", text, imageUrl };
   messages.push(message);
-  chatLog.append(createMessage(message.type, message.name, message.text, message.imageUrl));
-  scrollToBottom();
+  appendMessageElement(createMessage(message.type, message.name, message.text, message.imageUrl));
 }
 
 function addBotMessage(name, text, provider) {
   const message = { type: "bot", name, text, provider };
   messages.push(message);
-  chatLog.append(createMessage(message.type, message.name, message.text));
-  scrollToBottom();
+  appendMessageElement(createMessage(message.type, message.name, message.text));
 }
 
 function addSystemMessage(text, variant = "info") {
   const message = { type: `bot ${variant}`, name: "问医生助手", text, variant };
   messages.push(message);
-  chatLog.append(createMessage(message.type, message.name, message.text));
-  scrollToBottom();
+  appendMessageElement(createMessage(message.type, message.name, message.text));
 }
 
 function addTypingMessage() {
   const article = createMessage("bot typing", "医生", "正在查看您的问题...");
-  chatLog.append(article);
-  scrollToBottom();
+  appendMessageElement(article);
   return article;
 }
 
@@ -492,8 +488,7 @@ function addAskDoctorMessage(provider, questionText, imageUrl) {
     }
   };
   messages.push(message);
-  chatLog.append(createMessage(message.type, message.name, message.text, null, { action: message.action }));
-  scrollToBottom();
+  appendMessageElement(createMessage(message.type, message.name, message.text, null, { action: message.action }));
 }
 
 function createMessage(type, name, text, imageUrl, options = {}) {
@@ -784,6 +779,13 @@ function scrollToBottom() {
   requestAnimationFrame(() => {
     chatLog.scrollTop = chatLog.scrollHeight;
   });
+}
+
+function appendMessageElement(element) {
+  chatLog.querySelectorAll(".newest").forEach(item => item.classList.remove("newest"));
+  element.classList.add("newest");
+  chatLog.append(element);
+  scrollToBottom();
 }
 
 function escapeHtml(value) {
