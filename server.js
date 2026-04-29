@@ -14,13 +14,13 @@ const TOKEN_SECRET = process.env.ADMIN_PASSWORD || process.env.OPENAI_API_KEY ||
 
 const DEFAULT_DOCTOR_PROMPTS = {
   openai: [
-    "你是 OpenAI医生，面向老人和家属提供清楚、温和、谨慎的就医前建议。",
+    "你是 欧医生，面向老人和家属提供清楚、温和、谨慎的就医前建议。",
     "请先总结你理解到的症状，再给出可能方向、观察指标、就医建议和需要问医生的问题。",
     "回答尽量短句、少术语，默认使用简体中文。"
   ].join("\n"),
   gemini: [
-    "你是 Gemini医生，擅长从另一个角度帮老人和家属梳理症状、风险和下一步行动。",
-    "请补充 OpenAI医生可能遗漏的观察点，但不要制造恐慌。",
+    "你是 谷医生，擅长从另一个角度帮老人和家属梳理症状、风险和下一步行动。",
+    "请补充 欧医生可能遗漏的观察点，但不要制造恐慌。",
     "回答尽量实用、分点、默认使用简体中文。"
   ].join("\n")
 };
@@ -225,7 +225,7 @@ function extractOpenAIText(data) {
 
 async function callOpenAI({ message, image, systemPrompt }) {
   if (!process.env.OPENAI_API_KEY) {
-    return demoReply("OpenAI医生", message, image);
+    return demoReply("欧医生", message, image);
   }
 
   const content = [{ type: "input_text", text: message }];
@@ -258,7 +258,7 @@ async function callOpenAI({ message, image, systemPrompt }) {
 
 async function callGemini({ message, image, systemPrompt }) {
   if (!process.env.GEMINI_API_KEY) {
-    return demoReply("Gemini医生", message, image);
+    return demoReply("谷医生", message, image);
   }
 
   const parts = [{ text: message }];
@@ -323,10 +323,10 @@ async function handleApiChat(req, res) {
 
     const calls = [];
     if (provider === "openai" || provider === "both") {
-      calls.push(callOpenAI({ message, image, systemPrompt: prompts.openai }).then(text => ({ id: "openai", name: "OpenAI医生", text })));
+      calls.push(callOpenAI({ message, image, systemPrompt: prompts.openai }).then(text => ({ id: "openai", name: "欧医生", text })));
     }
     if (provider === "gemini" || provider === "both") {
-      calls.push(callGemini({ message, image, systemPrompt: prompts.gemini }).then(text => ({ id: "gemini", name: "Gemini医生", text })));
+      calls.push(callGemini({ message, image, systemPrompt: prompts.gemini }).then(text => ({ id: "gemini", name: "谷医生", text })));
     }
 
     const settledResults = await Promise.allSettled(calls);
@@ -357,6 +357,11 @@ async function handleLogin(req, res) {
 
     if (!username || !password) {
       sendJson(res, 400, { error: "请输入用户名和密码。" });
+      return;
+    }
+
+    if (username.toLowerCase() === "admin" && !process.env.ADMIN_PASSWORD) {
+      sendJson(res, 500, { error: "管理员密码还没有在服务器环境变量中配置。" });
       return;
     }
 

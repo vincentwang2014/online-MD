@@ -43,12 +43,12 @@
         </div>
 
         <label class="prompt-field">
-          <span>OpenAI医生 system prompt</span>
+          <span>欧医生 system prompt</span>
           <textarea id="openaiPrompt" rows="5"></textarea>
         </label>
 
         <label class="prompt-field">
-          <span>Gemini医生 system prompt</span>
+          <span>谷医生 system prompt</span>
           <textarea id="geminiPrompt" rows="5"></textarea>
         </label>
 
@@ -90,11 +90,11 @@
           <small>同时询问</small>
         </button>
         <button class="provider-option" type="button" data-provider="openai">
-          <span>OpenAI医生</span>
+          <span>欧医生</span>
           <small>ChatGPT</small>
         </button>
         <button class="provider-option" type="button" data-provider="gemini">
-          <span>Gemini医生</span>
+          <span>谷医生</span>
           <small>Google</small>
         </button>
       </section>
@@ -145,10 +145,11 @@
           <span>密码</span>
           <input id="passwordInput" type="password" maxlength="64" autocomplete="current-password" placeholder="请输入密码">
         </label>
+        <p id="loginError" class="form-error" aria-live="polite"></p>
         <div class="dialog-actions">
           <button id="logoutButton" type="button">退出登录</button>
           <button value="cancel" type="submit">取消</button>
-          <button class="primary-action" value="login" type="submit">登录</button>
+          <button id="loginSubmitButton" class="primary-action" value="login" type="submit">登录</button>
         </div>
       </form>
     </dialog>

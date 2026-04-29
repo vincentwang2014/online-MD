@@ -1,13 +1,13 @@
 const STORAGE_PREFIX = "elderCareDoctorApp";
 const GUEST_USER = "guest";
 const DEFAULT_OPENAI_PROMPT = [
-  "你是 OpenAI医生，面向老人和家属提供清楚、温和、谨慎的就医前建议。",
+  "你是 欧医生，面向老人和家属提供清楚、温和、谨慎的就医前建议。",
   "请先总结你理解到的症状，再给出可能方向、观察指标、就医建议和需要问医生的问题。",
   "回答尽量短句、少术语，默认使用简体中文。"
 ].join("\n");
 const DEFAULT_GEMINI_PROMPT = [
-  "你是 Gemini医生，擅长从另一个角度帮老人和家属梳理症状、风险和下一步行动。",
-  "请补充 OpenAI医生可能遗漏的观察点，但不要制造恐慌。",
+  "你是 谷医生，擅长从另一个角度帮老人和家属梳理症状、风险和下一步行动。",
+  "请补充 欧医生可能遗漏的观察点，但不要制造恐慌。",
   "回答尽量实用、分点、默认使用简体中文。"
 ].join("\n");
 const WELCOME_MESSAGE = {
@@ -33,6 +33,8 @@ const loginDialog = document.querySelector("#loginDialog");
 const loginForm = document.querySelector("#loginForm");
 const usernameInput = document.querySelector("#usernameInput");
 const passwordInput = document.querySelector("#passwordInput");
+const loginError = document.querySelector("#loginError");
+const loginSubmitButton = document.querySelector("#loginSubmitButton");
 const logoutButton = document.querySelector("#logoutButton");
 const accountName = document.querySelector("#accountName");
 const accountHint = document.querySelector("#accountHint");
@@ -82,6 +84,7 @@ function bindEvents() {
   loginButton.addEventListener("click", () => {
     usernameInput.value = currentUser === GUEST_USER ? "" : currentUser;
     passwordInput.value = "";
+    loginError.textContent = "";
     loginDialog.showModal();
     usernameInput.focus();
   });
@@ -163,9 +166,14 @@ async function login() {
   const username = usernameInput.value.trim();
   const password = passwordInput.value;
   if (!username || !password) {
+    loginError.textContent = "请输入用户名和密码。";
     passwordInput.focus();
     return;
   }
+
+  loginError.textContent = "";
+  loginSubmitButton.disabled = true;
+  loginSubmitButton.textContent = "登录中...";
 
   const response = await fetch("/api/login", {
     method: "POST",
@@ -174,7 +182,9 @@ async function login() {
   });
   const data = await response.json();
   if (!response.ok) {
-    addBotMessage("问医生助手", data.error || "登录失败。");
+    loginError.textContent = data.error || "登录失败。";
+    loginSubmitButton.disabled = false;
+    loginSubmitButton.textContent = "登录";
     return;
   }
 
@@ -188,6 +198,8 @@ async function login() {
   renderChat();
   renderHistory();
   loginDialog.close();
+  loginSubmitButton.disabled = false;
+  loginSubmitButton.textContent = "登录";
 }
 
 async function loadAdminSettings() {
