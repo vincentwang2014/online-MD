@@ -10,7 +10,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const PROMPTS_FILE = path.join(DATA_DIR, "prompts.json");
-const TOKEN_SECRET = process.env.ADMIN_PASSWORD || process.env.OPENAI_API_KEY || "local-dev-secret";
+const TOKEN_SECRET = getAdminPassword() || process.env.OPENAI_API_KEY || "local-dev-secret";
 
 const DEFAULT_DOCTOR_PROMPTS = {
   openai: [
@@ -80,6 +80,19 @@ function loadEnvFile(filePath) {
 
     process.env[key] = value;
   }
+}
+
+function normalizeSecret(value) {
+  let secret = String(value || "").trim();
+  const isQuoted =
+    (secret.startsWith('"') && secret.endsWith('"')) ||
+    (secret.startsWith("'") && secret.endsWith("'"));
+  if (isQuoted) secret = secret.slice(1, -1).trim();
+  return secret;
+}
+
+function getAdminPassword() {
+  return normalizeSecret(process.env.ADMIN_PASSWORD);
 }
 
 function ensureDataDir() {
@@ -353,27 +366,32 @@ async function handleLogin(req, res) {
     const body = await collectBody(req);
     const payload = JSON.parse(body || "{}");
     const username = String(payload.username || "").trim().slice(0, 24);
-    const password = String(payload.password || "");
+    const password = String(payload.password || "").trim();
 
     if (!username || !password) {
       sendJson(res, 400, { error: "请输入用户名和密码。" });
       return;
     }
 
-    if (username.toLowerCase() === "admin" && !process.env.ADMIN_PASSWORD) {
+    const adminPassword = getAdminPassword();
+    if (username.toLowerCase() === "admin" && !adminPassword) {
       sendJson(res, 500, { error: "管理员密码还没有在服务器环境变量中配置。" });
       return;
     }
 
     const isAdminLogin = username.toLowerCase() === "admin"
-      && process.env.ADMIN_PASSWORD
-      && password === process.env.ADMIN_PASSWORD;
+      && adminPassword
+      && password === adminPassword;
     const users = loadUsers();
     const user = users.find(item => item.username.toLowerCase() === username.toLowerCase());
     const isStoredUser = user && verifyPassword(password, user.passwordHash);
 
     if (!isAdminLogin && !isStoredUser) {
-      sendJson(res, 401, { error: "用户名或密码不正确。" });
+      sendJson(res, 401, {
+        error: username.toLowerCase() === "admin"
+          ? "管理员密码不匹配。请确认 Railway Variables 里的 ADMIN_PASSWORD 已 Apply changes 并重新部署。"
+          : "用户名或密码不正确。"
+      });
       return;
     }
 
