@@ -26,6 +26,7 @@ const chatForm = document.querySelector("#chatForm");
 const messageInput = document.querySelector("#messageInput");
 const sendButton = document.querySelector("#sendButton");
 const imageInput = document.querySelector("#imageInput");
+const galleryInput = document.querySelector("#galleryInput");
 const imagePreview = document.querySelector("#imagePreview");
 const imagePreviewImg = imagePreview.querySelector("img");
 const imageName = document.querySelector("#imageName");
@@ -155,7 +156,8 @@ function bindEvents() {
   });
   addUserForm.addEventListener("submit", addUser);
 
-  imageInput.addEventListener("change", handleImageSelect);
+  imageInput.addEventListener("change", () => handleImageSelect(imageInput));
+  galleryInput.addEventListener("change", () => handleImageSelect(galleryInput));
   removeImage.addEventListener("click", clearSelectedImage);
   messageInput.addEventListener("input", resizeTextarea);
   messageInput.addEventListener("keydown", event => {
@@ -282,6 +284,8 @@ async function handleSubmit(event) {
   const imageForRequest = selectedImage;
   const questionText = message || "请帮我看看这张图片。";
   addUserMessage(questionText, imageForRequest?.dataUrl);
+  maybeAddEmergencyWarning(questionText);
+  maybeAddDetailReminder(questionText, Boolean(imageForRequest));
   messageInput.value = "";
   clearSelectedImage();
   resizeTextarea();
@@ -337,19 +341,19 @@ async function sendQuestionToDoctors({ message, image, provider, offerOtherDocto
   }
 }
 
-async function handleImageSelect() {
-  const file = imageInput.files?.[0];
+async function handleImageSelect(input) {
+  const file = input.files?.[0];
   if (!file) return;
 
   if (!file.type.startsWith("image/")) {
     addBotMessage("问医生助手", "请上传 PNG、JPG 或 WebP 图片。");
-    imageInput.value = "";
+    input.value = "";
     return;
   }
 
   if (file.size > 8 * 1024 * 1024) {
     addBotMessage("问医生助手", "图片有点大，请选择 8MB 以下的图片。");
-    imageInput.value = "";
+    input.value = "";
     return;
   }
 
@@ -453,6 +457,13 @@ function addUserMessage(text, imageUrl) {
 
 function addBotMessage(name, text, provider) {
   const message = { type: "bot", name, text, provider };
+  messages.push(message);
+  chatLog.append(createMessage(message.type, message.name, message.text));
+  scrollToBottom();
+}
+
+function addSystemMessage(text, variant = "info") {
+  const message = { type: `bot ${variant}`, name: "问医生助手", text, variant };
   messages.push(message);
   chatLog.append(createMessage(message.type, message.name, message.text));
   scrollToBottom();
@@ -576,6 +587,44 @@ function maybeOfferProviderForLastQuestion(provider) {
   saveCurrentSession();
 }
 
+function maybeAddEmergencyWarning(text) {
+  if (!containsEmergencyTerms(text)) return;
+  addSystemMessage(
+    "这可能是急症。若出现胸痛、呼吸困难、口角歪斜、单侧无力、意识不清、严重出血、突然剧烈头痛等情况，请立即拨打急救电话或联系家人陪同就医。",
+    "alert"
+  );
+}
+
+function maybeAddDetailReminder(text, hasImage) {
+  if (hasImage || !needsMoreMedicalDetails(text)) return;
+  addSystemMessage(
+    "为了让医生回答更准，您可以再补充：年龄、症状持续多久、体温/血压/血糖等数值、正在吃的药、有没有胸痛或呼吸困难。已先帮您问医生。",
+    "info"
+  );
+}
+
+function containsEmergencyTerms(text) {
+  const normalized = String(text || "").toLowerCase();
+  return [
+    "胸痛", "胸闷", "呼吸困难", "喘不上气", "气短", "口角歪斜", "嘴歪", "单侧无力", "半身无力",
+    "意识不清", "昏迷", "晕倒", "严重出血", "大出血", "抽搐", "突然剧烈头痛", "说话不清",
+    "chest pain", "shortness of breath", "stroke", "unconscious", "severe bleeding"
+  ].some(term => normalized.includes(term));
+}
+
+function needsMoreMedicalDetails(text) {
+  const normalized = String(text || "").trim();
+  if (normalized.length <= 10) return true;
+
+  const hasDuration = /(\d+\s*(天|小时|分钟|周|月|年)|昨天|今天|刚刚|早上|晚上|一会儿|持续|多久)/.test(normalized);
+  const hasAge = /(\d+\s*岁|老人|老年|妈妈|爸爸|爷爷|奶奶|外公|外婆)/.test(normalized);
+  const hasMeasurement = /(血压|血糖|体温|发烧|发热|\d{2,3}\/\d{2,3}|\d{2}\.\d|℃|度)/.test(normalized);
+  const hasMedication = /(药|用药|吃了|服用|处方)/.test(normalized);
+  const detailCount = [hasDuration, hasAge, hasMeasurement, hasMedication].filter(Boolean).length;
+
+  return normalized.length < 28 && detailCount < 2;
+}
+
 function getLastUserMessage() {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index].type === "user") return messages[index];
@@ -619,6 +668,7 @@ function trimMessagesForStorage(items) {
     name: item.name,
     text: item.text,
     provider: item.provider,
+    variant: item.variant,
     imageUrl: item.imageUrl,
     action: item.action,
     quickActions: item.quickActions
@@ -688,6 +738,7 @@ function renderImagePreview() {
 function clearSelectedImage() {
   selectedImage = null;
   imageInput.value = "";
+  galleryInput.value = "";
   imagePreview.hidden = true;
   imagePreviewImg.removeAttribute("src");
   imageName.textContent = "";

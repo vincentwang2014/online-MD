@@ -124,11 +124,16 @@
         </div>
 
         <div class="input-row">
-          <label class="icon-button attach-button" for="imageInput" title="上传图片">
-            <span aria-hidden="true">＋</span>
-            <span class="sr-only">上传图片</span>
+          <label class="photo-button" for="imageInput">
+            拍照
+            <span class="sr-only">拍照问医生</span>
           </label>
           <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" capture="environment">
+          <label class="photo-button" for="galleryInput">
+            相册
+            <span class="sr-only">从相册选择图片</span>
+          </label>
+          <input id="galleryInput" type="file" accept="image/png,image/jpeg,image/webp">
           <textarea id="messageInput" rows="1" placeholder="请描述症状、年龄、持续时间..." aria-label="输入问题"></textarea>
           <button id="sendButton" class="send-button" type="submit" aria-label="发送">
             <span aria-hidden="true">➤</span>

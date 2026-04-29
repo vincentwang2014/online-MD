@@ -585,32 +585,34 @@ h1 {
 
 .input-row {
   display: grid;
-  grid-template-columns: 46px 1fr 50px;
+  grid-template-columns: 62px 62px 1fr 50px;
   gap: 8px;
   align-items: end;
 }
 
-#imageInput {
+#imageInput,
+#galleryInput {
   display: none;
 }
 
-.icon-button,
+.photo-button,
 .send-button {
   display: grid;
   place-items: center;
   height: 46px;
   border: 0;
-  border-radius: 50%;
 }
 
-.attach-button {
+.photo-button {
+  border-radius: 8px;
   background: var(--surface-strong);
   color: var(--accent);
-  font-size: 34px;
-  line-height: 1;
+  font-size: 16px;
+  font-weight: 900;
 }
 
 .send-button {
+  border-radius: 50%;
   background: var(--accent);
   color: white;
   font-size: 22px;
@@ -703,6 +705,24 @@ textarea:focus {
   animation: pulse 900ms infinite;
 }
 
+.message.alert .avatar {
+  background: var(--danger);
+}
+
+.message.alert .bubble {
+  border-color: #f0b4ad;
+  background: #fff1ef;
+}
+
+.message.alert .doctor-name {
+  color: var(--danger);
+}
+
+.message.info .bubble {
+  border-color: #c9d8f0;
+  background: #edf4ff;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -778,5 +798,21 @@ textarea:focus {
 
   .bubble p {
     font-size: 17px;
+  }
+
+  .input-row {
+    grid-template-columns: 1fr 1fr 44px;
+  }
+
+  .input-row textarea {
+    grid-column: 1 / 3;
+    grid-row: 2;
+  }
+
+  .send-button {
+    grid-column: 3;
+    grid-row: 1 / 3;
+    height: 100%;
+    min-height: 46px;
   }
 }
