@@ -16,6 +16,10 @@ const WELCOME_MESSAGE = {
   text: "您好。请说说哪里不舒服、持续多久、年龄和已有疾病。也可以拍照上传药盒、化验单或皮肤/伤口照片。",
   quickActions: true
 };
+const DOCTORS = {
+  openai: { name: "欧医生", other: "gemini" },
+  gemini: { name: "谷医生", other: "openai" }
+};
 
 const chatLog = document.querySelector("#chatLog");
 const chatForm = document.querySelector("#chatForm");
@@ -78,6 +82,7 @@ function bindEvents() {
       providerButtons.forEach(item => item.classList.remove("active"));
       button.classList.add("active");
       selectedProvider = button.dataset.provider;
+      maybeOfferProviderForLastQuestion(selectedProvider);
     });
   });
 
@@ -275,11 +280,21 @@ async function handleSubmit(event) {
   }
 
   const imageForRequest = selectedImage;
-  addUserMessage(message || "请帮我看看这张图片。", imageForRequest?.dataUrl);
+  const questionText = message || "请帮我看看这张图片。";
+  addUserMessage(questionText, imageForRequest?.dataUrl);
   messageInput.value = "";
   clearSelectedImage();
   resizeTextarea();
 
+  await sendQuestionToDoctors({
+    message: questionText,
+    image: imageForRequest,
+    provider: selectedProvider,
+    offerOtherDoctor: true
+  });
+}
+
+async function sendQuestionToDoctors({ message, image, provider, offerOtherDoctor = false }) {
   const typing = addTypingMessage();
   setBusy(true);
 
@@ -288,9 +303,9 @@ async function handleSubmit(event) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        provider: selectedProvider,
+        provider,
         message,
-        image: imageForRequest
+        image
       })
     });
     const data = await response.json();
@@ -301,9 +316,16 @@ async function handleSubmit(event) {
       return;
     }
 
-    data.results.forEach(result => addBotMessage(result.name, result.text));
+    data.results.forEach(result => addBotMessage(result.name, result.text, result.id));
     if (data.failures?.length) {
       addBotMessage("问医生助手", "有一位医生暂时没有连上，已先显示可用医生的回复。");
+    }
+
+    if (offerOtherDoctor && provider !== "both") {
+      const otherProvider = DOCTORS[provider]?.other;
+      if (otherProvider && !questionHasDoctorAnswer(getLastUserMessage(), otherProvider)) {
+        addAskDoctorMessage(otherProvider, message, image?.dataUrl);
+      }
     }
   } catch (error) {
     typing.remove();
@@ -355,7 +377,10 @@ function hydrateChat() {
 function renderChat() {
   chatLog.innerHTML = "";
   messages.forEach(message => {
-    chatLog.append(createMessage(message.type, message.name, message.text, message.imageUrl, message.quickActions));
+    chatLog.append(createMessage(message.type, message.name, message.text, message.imageUrl, {
+      quickActions: message.quickActions,
+      action: message.action
+    }));
   });
   scrollToBottom();
 }
@@ -426,8 +451,8 @@ function addUserMessage(text, imageUrl) {
   scrollToBottom();
 }
 
-function addBotMessage(name, text) {
-  const message = { type: "bot", name, text };
+function addBotMessage(name, text, provider) {
+  const message = { type: "bot", name, text, provider };
   messages.push(message);
   chatLog.append(createMessage(message.type, message.name, message.text));
   scrollToBottom();
@@ -440,7 +465,29 @@ function addTypingMessage() {
   return article;
 }
 
-function createMessage(type, name, text, imageUrl, quickActions = false) {
+function addAskDoctorMessage(provider, questionText, imageUrl) {
+  const doctorName = DOCTORS[provider]?.name;
+  if (!doctorName) return;
+
+  const message = {
+    type: "bot",
+    name: "问医生助手",
+    text: `要不要也请${doctorName}回答刚才的问题？`,
+    action: {
+      label: `请${doctorName}也回答`,
+      provider,
+      questionText,
+      imageUrl
+    }
+  };
+  messages.push(message);
+  chatLog.append(createMessage(message.type, message.name, message.text, null, { action: message.action }));
+  scrollToBottom();
+}
+
+function createMessage(type, name, text, imageUrl, options = {}) {
+  const quickActions = Boolean(options.quickActions);
+  const action = options.action;
   const article = document.createElement("article");
   article.className = `message ${type}`;
 
@@ -491,8 +538,61 @@ function createMessage(type, name, text, imageUrl, quickActions = false) {
     bubble.append(quick);
   }
 
+  if (action) {
+    const actionBar = document.createElement("div");
+    actionBar.className = "message-actions";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = action.label;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      button.textContent = "正在询问...";
+      await sendQuestionToDoctors({
+        message: action.questionText,
+        image: action.imageUrl ? { dataUrl: action.imageUrl } : null,
+        provider: action.provider,
+        offerOtherDoctor: false
+      });
+    });
+    actionBar.append(button);
+    bubble.append(actionBar);
+  }
+
   article.append(avatar, bubble);
   return article;
+}
+
+function maybeOfferProviderForLastQuestion(provider) {
+  if (provider === "both") return;
+  if (messageInput.value.trim()) return;
+
+  const lastUserMessage = getLastUserMessage();
+  if (!lastUserMessage || questionHasDoctorAnswer(lastUserMessage, provider)) return;
+
+  const lastMessage = messages[messages.length - 1];
+  if (lastMessage?.action?.provider === provider) return;
+
+  addAskDoctorMessage(provider, lastUserMessage.text, lastUserMessage.imageUrl);
+  saveCurrentSession();
+}
+
+function getLastUserMessage() {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].type === "user") return messages[index];
+  }
+  return null;
+}
+
+function questionHasDoctorAnswer(userMessage, provider) {
+  const userIndex = messages.indexOf(userMessage);
+  if (userIndex === -1) return false;
+
+  for (let index = userIndex + 1; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message.type === "user") break;
+    if (message.provider === provider) return true;
+  }
+  return false;
 }
 
 function saveCurrentSession() {
@@ -518,7 +618,9 @@ function trimMessagesForStorage(items) {
     type: item.type,
     name: item.name,
     text: item.text,
+    provider: item.provider,
     imageUrl: item.imageUrl,
+    action: item.action,
     quickActions: item.quickActions
   }));
 }

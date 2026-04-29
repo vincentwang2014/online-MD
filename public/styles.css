@@ -484,6 +484,27 @@ h1 {
   font-weight: 800;
 }
 
+.message-actions {
+  margin-top: 12px;
+}
+
+.message-actions button {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  padding: 0 14px;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.message-actions button:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
 .composer {
   position: sticky;
   bottom: 0;
