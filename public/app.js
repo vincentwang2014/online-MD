@@ -75,6 +75,7 @@ function boot() {
   renderChat();
   renderHistory();
   bindEvents();
+  syncHistoryFromServer();
 }
 
 function bindEvents() {
@@ -132,6 +133,7 @@ function bindEvents() {
   clearHistoryButton.addEventListener("click", () => {
     if (currentUser === GUEST_USER) return;
     localStorage.removeItem(historyKey());
+    clearHistoryOnServer();
     currentChatId = null;
     saveCurrentChatId();
     hydrateChat();
@@ -205,6 +207,7 @@ async function login() {
   renderChat();
   renderHistory();
   loginDialog.close();
+  await syncHistoryFromServer();
   loginSubmitButton.disabled = false;
   loginSubmitButton.textContent = "登录";
 }
@@ -655,6 +658,55 @@ function saveCurrentSession() {
   sessions.unshift(session);
   localStorage.setItem(historyKey(), JSON.stringify(sessions.slice(0, 20)));
   saveCurrentChatId();
+  saveSessionToServer(session);
+}
+
+async function syncHistoryFromServer() {
+  if (!auth?.token || currentUser === GUEST_USER) return;
+
+  try {
+    const response = await fetch("/api/history", { headers: authHeaders() });
+    const data = await response.json();
+    if (!response.ok || !Array.isArray(data.sessions)) return;
+
+    if (data.sessions.length) {
+      localStorage.setItem(historyKey(), JSON.stringify(data.sessions));
+      currentChatId = loadCurrentChatId() || data.sessions[0].id;
+      saveCurrentChatId();
+      hydrateChat();
+      renderChat();
+      renderHistory();
+    } else {
+      saveCurrentSession();
+    }
+  } catch {
+    // Keep local history as an offline fallback.
+  }
+}
+
+async function saveSessionToServer(session) {
+  if (!auth?.token || currentUser === GUEST_USER) return;
+  try {
+    await fetch("/api/history", {
+      method: "POST",
+      headers: { ...authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ session })
+    });
+  } catch {
+    // Local history remains available if the network is down.
+  }
+}
+
+async function clearHistoryOnServer() {
+  if (!auth?.token || currentUser === GUEST_USER) return;
+  try {
+    await fetch("/api/history", {
+      method: "DELETE",
+      headers: authHeaders()
+    });
+  } catch {
+    // Local clear already happened.
+  }
 }
 
 function trimMessagesForStorage(items) {

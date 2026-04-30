@@ -11,6 +11,8 @@ const DATA_DIR = path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const PROMPTS_FILE = path.join(DATA_DIR, "prompts.json");
 const TOKEN_SECRET = getAdminPassword() || process.env.OPENAI_API_KEY || "local-dev-secret";
+let dbPoolPromise = null;
+let dbSchemaReady = false;
 
 const DEFAULT_DOCTOR_PROMPTS = {
   openai: [
@@ -116,6 +118,55 @@ function writeJsonFile(filePath, data) {
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
+function getDatabaseUrl() {
+  return process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.DATABASE_PRIVATE_URL || "";
+}
+
+async function getDbPool() {
+  const databaseUrl = getDatabaseUrl();
+  if (!databaseUrl) return null;
+
+  if (!dbPoolPromise) {
+    dbPoolPromise = import("pg").then(({ Pool }) => new Pool({
+      connectionString: databaseUrl,
+      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined
+    }));
+  }
+
+  return dbPoolPromise;
+}
+
+async function ensureDbSchema() {
+  const pool = await getDbPool();
+  if (!pool || dbSchemaReady) return pool;
+
+  await pool.query(`
+    create table if not exists app_users (
+      username text primary key,
+      role text not null default 'user',
+      password_hash text not null,
+      created_at timestamptz not null default now()
+    );
+
+    create table if not exists app_settings (
+      key text primary key,
+      value jsonb not null,
+      updated_at timestamptz not null default now()
+    );
+
+    create table if not exists chat_sessions (
+      username text not null,
+      session_id text not null,
+      title text not null,
+      messages jsonb not null,
+      updated_at timestamptz not null default now(),
+      primary key (username, session_id)
+    );
+  `);
+  dbSchemaReady = true;
+  return pool;
+}
+
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
   const hash = crypto.scryptSync(String(password), salt, 64).toString("hex");
   return `${salt}:${hash}`;
@@ -129,26 +180,105 @@ function verifyPassword(password, storedHash) {
   return expected.length === actualHash.length && crypto.timingSafeEqual(expected, actualHash);
 }
 
-function loadUsers() {
-  return readJsonFile(USERS_FILE, []);
+async function loadUsers() {
+  const pool = await ensureDbSchema();
+  if (!pool) return readJsonFile(USERS_FILE, []);
+
+  const result = await pool.query(`
+    select username, role, password_hash as "passwordHash", created_at as "createdAt"
+    from app_users
+    order by created_at desc
+  `);
+  return result.rows;
 }
 
-function saveUsers(users) {
+async function saveUsers(users) {
+  const pool = await ensureDbSchema();
+  if (!pool) {
+    writeJsonFile(USERS_FILE, users);
+    return;
+  }
+
+  for (const user of users) {
+    await pool.query(`
+      insert into app_users (username, role, password_hash, created_at)
+      values ($1, $2, $3, coalesce($4::timestamptz, now()))
+      on conflict (username) do update
+      set role = excluded.role, password_hash = excluded.password_hash
+    `, [user.username, user.role || "user", user.passwordHash, user.createdAt || null]);
+  }
+}
+
+async function createUser(user) {
+  const pool = await ensureDbSchema();
+  if (!pool) {
+    const users = readJsonFile(USERS_FILE, []);
+    users.push(user);
+    writeJsonFile(USERS_FILE, users);
+    return;
+  }
+
+  await pool.query(`
+    insert into app_users (username, role, password_hash, created_at)
+    values ($1, $2, $3, now())
+  `, [user.username, user.role || "user", user.passwordHash]);
+}
+
+async function findUser(username) {
+  const users = await loadUsers();
+  return users.find(item => item.username.toLowerCase() === username.toLowerCase()) || null;
+}
+
+async function usernameExists(username) {
+  const users = await loadUsers();
+  return users.some(user => user.username.toLowerCase() === username.toLowerCase());
+}
+
+async function migrateFileUsersToDb() {
+  const pool = await ensureDbSchema();
+  if (!pool) return;
+
+  const users = readJsonFile(USERS_FILE, []);
+  if (users.length) await saveUsers(users);
+}
+
+function saveUsersToFile(users) {
   writeJsonFile(USERS_FILE, users);
 }
 
-function loadDoctorPrompts() {
+async function loadDoctorPrompts() {
+  const pool = await ensureDbSchema();
+  if (pool) {
+    const result = await pool.query("select value from app_settings where key = 'doctor_prompts'");
+    if (result.rows[0]?.value) {
+      return { ...DEFAULT_DOCTOR_PROMPTS, ...result.rows[0].value };
+    }
+  }
+
   return {
     ...DEFAULT_DOCTOR_PROMPTS,
     ...readJsonFile(PROMPTS_FILE, {})
   };
 }
 
-function saveDoctorPrompts(prompts) {
-  writeJsonFile(PROMPTS_FILE, {
+async function saveDoctorPrompts(prompts) {
+  const cleanedPrompts = {
     openai: sanitizeMessage(prompts.openai) || DEFAULT_DOCTOR_PROMPTS.openai,
     gemini: sanitizeMessage(prompts.gemini) || DEFAULT_DOCTOR_PROMPTS.gemini
-  });
+  };
+
+  const pool = await ensureDbSchema();
+  if (!pool) {
+    writeJsonFile(PROMPTS_FILE, cleanedPrompts);
+    return;
+  }
+
+  await pool.query(`
+    insert into app_settings (key, value, updated_at)
+    values ('doctor_prompts', $1::jsonb, now())
+    on conflict (key) do update
+    set value = excluded.value, updated_at = now()
+  `, [JSON.stringify(cleanedPrompts)]);
 }
 
 function signToken(payload) {
@@ -192,6 +322,52 @@ function requireAdmin(req, res) {
     return null;
   }
   return auth;
+}
+
+function requireAuth(req, res) {
+  const auth = authFromRequest(req);
+  if (!auth?.username) {
+    sendJson(res, 401, { error: "请先登录。" });
+    return null;
+  }
+  return auth;
+}
+
+async function loadChatSessions(username) {
+  const pool = await ensureDbSchema();
+  if (!pool) return [];
+
+  const result = await pool.query(`
+    select session_id as id, title, messages, updated_at as "updatedAt"
+    from chat_sessions
+    where username = $1
+    order by updated_at desc
+    limit 30
+  `, [username]);
+  return result.rows;
+}
+
+async function saveChatSession(username, session) {
+  const pool = await ensureDbSchema();
+  if (!pool) return;
+
+  await pool.query(`
+    insert into chat_sessions (username, session_id, title, messages, updated_at)
+    values ($1, $2, $3, $4::jsonb, now())
+    on conflict (username, session_id) do update
+    set title = excluded.title, messages = excluded.messages, updated_at = now()
+  `, [
+    username,
+    String(session.id || "").slice(0, 120),
+    String(session.title || "新对话").slice(0, 80),
+    JSON.stringify(Array.isArray(session.messages) ? session.messages.slice(-80) : [])
+  ]);
+}
+
+async function clearChatSessions(username) {
+  const pool = await ensureDbSchema();
+  if (!pool) return;
+  await pool.query("delete from chat_sessions where username = $1", [username]);
 }
 
 function sendJson(res, status, data) {
@@ -353,7 +529,7 @@ async function handleApiChat(req, res) {
     const message = sanitizeMessage(payload.message);
     const image = payload.image && typeof payload.image === "object" ? payload.image : null;
     const provider = payload.provider === "gemini" ? "gemini" : payload.provider === "both" ? "both" : "openai";
-    const prompts = loadDoctorPrompts();
+    const prompts = await loadDoctorPrompts();
 
     if (!message && !safeDataUrl(image)) {
       sendJson(res, 400, { error: "请输入问题或上传图片。" });
@@ -421,8 +597,8 @@ async function handleLogin(req, res) {
     const isAdminLogin = username.toLowerCase() === "admin"
       && adminPassword
       && password === adminPassword;
-    const users = loadUsers();
-    const user = users.find(item => item.username.toLowerCase() === username.toLowerCase());
+    await migrateFileUsersToDb();
+    const user = await findUser(username);
     const isStoredUser = user && verifyPassword(password, user.passwordHash);
 
     if (!isAdminLogin && !isStoredUser) {
@@ -453,7 +629,8 @@ async function handleUsers(req, res) {
   if (!auth) return;
 
   if (req.method === "GET") {
-    const users = loadUsers().map(user => ({
+    await migrateFileUsersToDb();
+    const users = (await loadUsers()).map(user => ({
       username: user.username,
       role: user.role || "user",
       createdAt: user.createdAt
@@ -483,19 +660,18 @@ async function handleUsers(req, res) {
       return;
     }
 
-    const users = loadUsers();
-    if (username.toLowerCase() === "admin" || users.some(user => user.username.toLowerCase() === username.toLowerCase())) {
+    await migrateFileUsersToDb();
+    if (username.toLowerCase() === "admin" || await usernameExists(username)) {
       sendJson(res, 409, { error: "这个用户名已经存在。" });
       return;
     }
 
-    users.push({
+    await createUser({
       username,
       role,
       passwordHash: hashPassword(password),
       createdAt: new Date().toISOString()
     });
-    saveUsers(users);
     sendJson(res, 201, { user: { username, role } });
   } catch (error) {
     sendJson(res, 500, { error: "添加用户失败。" });
@@ -507,7 +683,7 @@ async function handlePrompts(req, res) {
   if (!auth) return;
 
   if (req.method === "GET") {
-    sendJson(res, 200, { prompts: loadDoctorPrompts() });
+    sendJson(res, 200, { prompts: await loadDoctorPrompts() });
     return;
   }
 
@@ -519,10 +695,40 @@ async function handlePrompts(req, res) {
   try {
     const body = await collectBody(req);
     const payload = JSON.parse(body || "{}");
-    saveDoctorPrompts(payload.prompts || {});
-    sendJson(res, 200, { prompts: loadDoctorPrompts() });
+    await saveDoctorPrompts(payload.prompts || {});
+    sendJson(res, 200, { prompts: await loadDoctorPrompts() });
   } catch (error) {
     sendJson(res, 500, { error: "保存医生提示词失败。" });
+  }
+}
+
+async function handleHistory(req, res) {
+  const auth = requireAuth(req, res);
+  if (!auth) return;
+
+  try {
+    if (req.method === "GET") {
+      sendJson(res, 200, { sessions: await loadChatSessions(auth.username) });
+      return;
+    }
+
+    if (req.method === "DELETE") {
+      await clearChatSessions(auth.username);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "POST") {
+      const body = await collectBody(req);
+      const payload = JSON.parse(body || "{}");
+      await saveChatSession(auth.username, payload.session || {});
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    sendJson(res, 405, { error: "Method not allowed" });
+  } catch (error) {
+    sendJson(res, 500, { error: "保存历史失败。" });
   }
 }
 
@@ -574,6 +780,11 @@ const server = http.createServer((req, res) => {
 
   if (req.url.startsWith("/api/prompts")) {
     handlePrompts(req, res);
+    return;
+  }
+
+  if (req.url.startsWith("/api/history")) {
+    handleHistory(req, res);
     return;
   }
 
